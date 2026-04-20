@@ -1,0 +1,9 @@
+Autohack2025_Dataset/
+*.zip
+preprocess/source/
+Result/
+__pycache__/
+*.pyc
+*.pkl
+*.egg-info/
+.env
