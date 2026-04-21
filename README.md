@@ -484,14 +484,14 @@ Reference runtimes below were measured on a machine with **20 CPU cores** and **
 
 | Script | Purpose | Main Result Type | Approx. Runtime |
 |---|---|---|---|
-| Dataset download (Zenodo, 295 MB) | Fetch `Autohack2025_Dataset.zip` | raw archive | ~0.4 min |
+| Dataset download (Zenodo, 295 MB) | Fetch `Autohack2025_Dataset.zip` | raw archive | ~12 min |
 | Dataset extraction (unzip) | Extract archive into repo root | raw dataset | ~0.1 min |
 | `preprocess/preprocess.py` | 8-feature preprocessing | intermediate CSV / processed inputs | ~1.1 min |
 | `preprocess/preprocess38f.py` | 38-feature preprocessing (prerequisite for Observation 3) | intermediate CSV / pickle files | ~75.7 min |
 | `observation_code/observation1.py` | RF baseline evaluation | per-attack metrics, confusion matrix | ~7.7 min |
 | `observation_code/observation2.py` | RF evaluation without UDS messages | false-positive analysis, metrics | ~4.9 min |
 | `observation_code/observation3.py` | Single-bus vs. multi-bus training with RF/XGBoost | Macro-F1 summary, feature-importance analysis | ~24.7 min |
-| **Full pipeline (end-to-end)** | All steps above, including dataset download | — | **~115 min (≈ 1h 55m)** |
+| **Full pipeline (end-to-end)** | All steps above, including dataset download | — | **~126.2 min (≈ 2h 6m )** |
 
 **Note.** Observation 3 and 38-feature preprocessing dominate total runtime. Runtime scales with the number of CPU cores and storage I/O throughput.
 
