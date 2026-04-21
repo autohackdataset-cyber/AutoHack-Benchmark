@@ -11,6 +11,8 @@ import time
 import warnings
 from datetime import datetime
 
+from tqdm import tqdm
+
 import numpy as np
 import pandas as pd
 from scipy.stats import skew, kurtosis
@@ -195,31 +197,40 @@ class CANIDSFeatureExtractor38:
 # =============================================================================
 def main():
     _start = time.time()
-    print("=" * 80)
-    print("38-FEATURE PREPROCESSING")
-    print("=" * 80)
-    # ── Load raw CSVs ────────────────────────────────────────────────────────
     SOURCE_PATH = os.path.join(BASE_PATH, "Autohack2025_Dataset", "Interface")
     train_data_path  = os.path.join(SOURCE_PATH, "train", "autohack_train_data_interface.csv")
     train_label_path = os.path.join(SOURCE_PATH, "train", "autohack_train_label_interface.csv")
     test_data_path   = os.path.join(SOURCE_PATH, "test",  "autohack_test_data_interface.csv")
     test_label_path  = os.path.join(SOURCE_PATH, "test",  "autohack_test_label_interface.csv")
 
-    print("\n[1] Loading raw CSVs ...")
-    t0 = datetime.now()
-    train_data_df  = pd.read_csv(train_data_path,  dtype={'Arbitration_ID': str})
-    train_label_df = pd.read_csv(train_label_path)
+    # ── Load CSVs ────────────────────────────────────────────────────────────
+    load_files = [
+        ("📄 train data",  train_data_path),
+        ("📄 train label", train_label_path),
+        ("📄 test data",   test_data_path),
+        ("📄 test label",  test_label_path),
+    ]
+    print(f"\n📂 Loading raw CSVs — {SOURCE_PATH}")
+    with tqdm(total=len(load_files), desc="  ▶ Loading", unit="file") as pbar:
+        pbar.set_description(load_files[0][0])
+        train_data_df = pd.read_csv(train_data_path, dtype={'Arbitration_ID': str})
+        pbar.update(1)
+        pbar.set_description(load_files[1][0])
+        train_label_df = pd.read_csv(train_label_path)
+        pbar.update(1)
+        pbar.set_description(load_files[2][0])
+        test_data_df = pd.read_csv(test_data_path, dtype={'Arbitration_ID': str})
+        pbar.update(1)
+        pbar.set_description(load_files[3][0])
+        test_label_df = pd.read_csv(test_label_path)
+        pbar.update(1)
+
     train_df = pd.concat([train_data_df, train_label_df], axis=1)
+    test_df  = pd.concat([test_data_df,  test_label_df],  axis=1)
     train_label_col = train_df.columns[-1]
-    print(f"  train: {len(train_df):,} rows  (label col = '{train_label_col}')")
+    test_label_col  = test_df.columns[-1]
+    print(f"  train: {len(train_df):,} rows  |  test: {len(test_df):,} rows")
 
-    test_data_df  = pd.read_csv(test_data_path,  dtype={'Arbitration_ID': str})
-    test_label_df = pd.read_csv(test_label_path)
-    test_df = pd.concat([test_data_df, test_label_df], axis=1)
-    test_label_col = test_df.columns[-1]
-    print(f"  test:  {len(test_df):,} rows  (label col = '{test_label_col}')")
-
-    # Merge UDS_Spoofing variants into 'UDS' (observation3.py convention)
     train_df[train_label_col] = train_df[train_label_col].apply(
         lambda x: 'UDS' if 'UDS' in str(x) else x
     )
@@ -227,181 +238,66 @@ def main():
         lambda x: 'UDS' if 'UDS' in str(x) else x
     )
 
-    train_df_b = train_df[train_df['Interface'] == 'B-CAN']
-    train_df_c = train_df[train_df['Interface'] == 'C-CAN']
-    train_df_p = train_df[train_df['Interface'] == 'P-CAN']
-
-    test_df_b = test_df[test_df['Interface'] == 'B-CAN']
-    test_df_c = test_df[test_df['Interface'] == 'C-CAN']
-    test_df_p = test_df[test_df['Interface'] == 'P-CAN']
-
-    print(f"  train labels: {sorted(train_df[train_label_col].unique())}")
-    print(f"  test  labels: {sorted(test_df[test_label_col].unique())}")
-    print(f"  CSV load time: {datetime.now() - t0}")
-
     # ── Extract features ─────────────────────────────────────────────────────
     extractor = CANIDSFeatureExtractor38(window_size='10s')
+    subsets = [
+        ("train (all)",   train_df[train_df['Interface'].notna()],        "train",   train_df,   train_label_col),
+        ("train (B-CAN)", train_df[train_df['Interface'] == 'B-CAN'],     "train_b", train_df[train_df['Interface'] == 'B-CAN'], train_label_col),
+        ("train (C-CAN)", train_df[train_df['Interface'] == 'C-CAN'],     "train_c", train_df[train_df['Interface'] == 'C-CAN'], train_label_col),
+        ("train (P-CAN)", train_df[train_df['Interface'] == 'P-CAN'],     "train_p", train_df[train_df['Interface'] == 'P-CAN'], train_label_col),
+        ("test  (all)",   test_df[test_df['Interface'].notna()],          "test",    test_df,    test_label_col),
+        ("test  (B-CAN)", test_df[test_df['Interface'] == 'B-CAN'],       "test_b",  test_df[test_df['Interface'] == 'B-CAN'],  test_label_col),
+        ("test  (C-CAN)", test_df[test_df['Interface'] == 'C-CAN'],       "test_c",  test_df[test_df['Interface'] == 'C-CAN'],  test_label_col),
+        ("test  (P-CAN)", test_df[test_df['Interface'] == 'P-CAN'],       "test_p",  test_df[test_df['Interface'] == 'P-CAN'],  test_label_col),
+    ]
 
-    print("\n[2] Extracting features from TRAINING data ...")
-    t0 = datetime.now()
-    train_features = extractor.extract(train_df)
-    print(f"  train extract time: {datetime.now() - t0}")
+    print(f"\n📂 Extracting 38 features — {len(subsets)} subsets")
+    proc = {}
+    with tqdm(total=len(subsets), desc="  ▶ Extracting", unit="subset") as pbar:
+        for label, df_sub, key, df_orig, lbl_col in subsets:
+            pbar.set_description(f"  ▶ {label}")
+            feat = extractor.extract(df_sub)
+            feat['Interface'] = df_orig['Interface'].values
+            feat['Label']     = df_orig[lbl_col].values
+            proc[key] = feat
+            pbar.update(1)
 
-    t0 = datetime.now()
-    train_features_b = extractor.extract(train_df_b)
-    print(f"  train extract time: {datetime.now() - t0}")
-
-    t0 = datetime.now()
-    train_features_c = extractor.extract(train_df_c)
-    print(f"  train extract time: {datetime.now() - t0}")
-
-    t0 = datetime.now()
-    train_features_p = extractor.extract(train_df_p)
-    print(f"  train extract time: {datetime.now() - t0}")
-
-    print("\n[3] Extracting features from TEST data ...")
-    t0 = datetime.now()
-    test_features = extractor.extract(test_df)
-    print(f"  test extract time: {datetime.now() - t0}")
-
-    t0 = datetime.now()
-    test_features_b = extractor.extract(test_df_b)
-    print(f"  train extract time: {datetime.now() - t0}")
-
-    t0 = datetime.now()
-    test_features_c = extractor.extract(test_df_c)
-    print(f"  train extract time: {datetime.now() - t0}")
-
-    t0 = datetime.now()
-    test_features_p = extractor.extract(test_df_p)
-    print(f"  train extract time: {datetime.now() - t0}")
-
-    # ── Build proc dataframes (features + Interface + Label) ─────────────────
-    feature_columns = list(train_features.columns)
-
-    train_proc = train_features.copy()
-    train_proc['Interface'] = train_df['Interface'].values
-    train_proc['Label']     = train_df[train_label_col].values
-
-    train_proc_b = train_features_b.copy()
-    train_proc_b['Interface'] = train_df_b['Interface'].values
-    train_proc_b['Label']     = train_df_b[train_label_col].values
-
-    train_proc_c = train_features_c.copy()
-    train_proc_c['Interface'] = train_df_c['Interface'].values
-    train_proc_c['Label']     = train_df_c[train_label_col].values
-
-    train_proc_p = train_features_p.copy()
-    train_proc_p['Interface'] = train_df_p['Interface'].values
-    train_proc_p['Label']     = train_df_p[train_label_col].values
-
-    test_proc = test_features.copy()
-    test_proc['Interface'] = test_df['Interface'].values
-    test_proc['Label']     = test_df[test_label_col].values
-
-    test_proc_b = test_features_b.copy()
-    test_proc_b['Interface'] = test_df_b['Interface'].values
-    test_proc_b['Label']     = test_df_b[test_label_col].values
-
-    test_proc_c = test_features_c.copy()
-    test_proc_c['Interface'] = test_df_c['Interface'].values
-    test_proc_c['Label']     = test_df_c[test_label_col].values
-
-    test_proc_p = test_features_p.copy()
-    test_proc_p['Interface'] = test_df_p['Interface'].values
-    test_proc_p['Label']     = test_df_p[test_label_col].values
-
-    print(f"\n[4] proc shapes:")
-    print(f"  train_proc: {train_proc.shape}  ({len(feature_columns)} features + Interface + Label)")
-    print(f"  test_proc:  {test_proc.shape}")
+    feature_columns = [c for c in proc['train'].columns if c not in ('Interface', 'Label')]
 
     # ── Save outputs ─────────────────────────────────────────────────────────
-    print(f"\n[5] Saving outputs to {OUTPUT_DIR} ...")
+    save_pairs = [
+        ("train_proc_38f",   proc['train']),
+        ("train_proc_b_38f", proc['train_b']),
+        ("train_proc_c_38f", proc['train_c']),
+        ("train_proc_p_38f", proc['train_p']),
+        ("test_proc_38f",    proc['test']),
+        ("test_proc_b_38f",  proc['test_b']),
+        ("test_proc_c_38f",  proc['test_c']),
+        ("test_proc_p_38f",  proc['test_p']),
+    ]
 
-    train_csv = os.path.join(OUTPUT_DIR, "train_proc_38f.csv")
-    train_csv_b = os.path.join(OUTPUT_DIR, "train_proc_b_38f.csv")
-    train_csv_c = os.path.join(OUTPUT_DIR, "train_proc_c_38f.csv")
-    train_csv_p = os.path.join(OUTPUT_DIR, "train_proc_p_38f.csv")
-    test_csv  = os.path.join(OUTPUT_DIR, "test_proc_38f.csv")
-    test_csv_b  = os.path.join(OUTPUT_DIR, "test_proc_b_38f.csv")
-    test_csv_c  = os.path.join(OUTPUT_DIR, "test_proc_c_38f.csv")
-    test_csv_p  = os.path.join(OUTPUT_DIR, "test_proc_p_38f.csv")
-    train_pkl = os.path.join(OUTPUT_DIR, "train_proc_38f.pkl")
-    train_pkl_c = os.path.join(OUTPUT_DIR, "train_proc_c_38f.pkl")
-    train_pkl_b = os.path.join(OUTPUT_DIR, "train_proc_b_38f.pkl")
-    train_pkl_p = os.path.join(OUTPUT_DIR, "train_proc_p_38f.pkl")
-    test_pkl  = os.path.join(OUTPUT_DIR, "test_proc_38f.pkl")
-    test_pkl_c  = os.path.join(OUTPUT_DIR, "test_proc_c_38f.pkl")
-    test_pkl_b  = os.path.join(OUTPUT_DIR, "test_proc_b_38f.pkl")
-    test_pkl_p  = os.path.join(OUTPUT_DIR, "test_proc_p_38f.pkl")
-    feat_txt  = os.path.join(OUTPUT_DIR, "feature_columns.txt")
+    print(f"\n📂 Saving outputs — {OUTPUT_DIR}")
+    with tqdm(total=len(save_pairs) * 2 + 1, desc="  ▶ Saving", unit="file") as pbar:
+        for name, df_out in save_pairs:
+            csv_path = os.path.join(OUTPUT_DIR, f"{name}.csv")
+            pbar.set_description(f"  ▶ {name}.csv")
+            df_out.to_csv(csv_path, index=False)
+            pbar.update(1)
+            pkl_path = os.path.join(OUTPUT_DIR, f"{name}.pkl")
+            pbar.set_description(f"  ▶ {name}.pkl")
+            with open(pkl_path, 'wb') as f:
+                pickle.dump(df_out, f)
+            pbar.update(1)
 
-    print("  saving train CSV ...")
-    train_proc.to_csv(train_csv, index=False)
-    print(f"    -> {train_csv}  ({os.path.getsize(train_csv) / 1024 / 1024:.1f} MB)")
-    train_proc_b.to_csv(train_csv_b, index=False)
-    print(f"    -> {train_csv_b}  ({os.path.getsize(train_csv_b) / 1024 / 1024:.1f} MB)")
-    train_proc_c.to_csv(train_csv_c, index=False)
-    print(f"    -> {train_csv_c}  ({os.path.getsize(train_csv_c) / 1024 / 1024:.1f} MB)")
-    train_proc_p.to_csv(train_csv_p, index=False)
-    print(f"    -> {train_csv_p}  ({os.path.getsize(train_csv_p) / 1024 / 1024:.1f} MB)")
+        feat_txt = os.path.join(OUTPUT_DIR, "feature_columns.txt")
+        pbar.set_description("  ▶ feature_columns.txt")
+        with open(feat_txt, 'w', encoding='utf-8') as f:
+            f.write("\n".join(feature_columns))
+        pbar.update(1)
 
-    print("  saving test CSV ...")
-    test_proc.to_csv(test_csv, index=False)
-    print(f"    -> {test_csv}  ({os.path.getsize(test_csv) / 1024 / 1024:.1f} MB)")
-    test_proc_b.to_csv(test_csv_b, index=False)
-    print(f"    -> {test_csv_b}  ({os.path.getsize(test_csv_b) / 1024 / 1024:.1f} MB)")
-    test_proc_c.to_csv(test_csv_c, index=False)
-    print(f"    -> {test_csv_c}  ({os.path.getsize(test_csv_c) / 1024 / 1024:.1f} MB)")
-    test_proc_p.to_csv(test_csv_p, index=False)
-    print(f"    -> {test_csv_p}  ({os.path.getsize(test_csv_p) / 1024 / 1024:.1f} MB)")
-
-    print("  saving train pickle ...")
-    with open(train_pkl, 'wb') as f:
-        pickle.dump(train_proc, f)
-    print(f"    -> {train_pkl}  ({os.path.getsize(train_pkl) / 1024 / 1024:.1f} MB)")
-    with open(train_pkl_b, 'wb') as f:
-        pickle.dump(train_proc_b, f)
-    print(f"    -> {train_pkl_b}  ({os.path.getsize(train_pkl_b) / 1024 / 1024:.1f} MB)")
-    with open(train_pkl_c, 'wb') as f:
-        pickle.dump(train_proc_c, f)
-    print(f"    -> {train_pkl_c}  ({os.path.getsize(train_pkl_c) / 1024 / 1024:.1f} MB)")
-    with open(train_pkl_p, 'wb') as f:
-        pickle.dump(train_proc_p, f)
-    print(f"    -> {train_pkl_p}  ({os.path.getsize(train_pkl_p) / 1024 / 1024:.1f} MB)")
-
-
-    print("  saving test pickle ...")
-    with open(test_pkl, 'wb') as f:
-        pickle.dump(test_proc, f)
-    print(f"    -> {test_pkl}  ({os.path.getsize(test_pkl) / 1024 / 1024:.1f} MB)")
-    with open(test_pkl_b, 'wb') as f:
-        pickle.dump(test_proc_b, f)
-    print(f"    -> {test_pkl_b}  ({os.path.getsize(test_pkl_b) / 1024 / 1024:.1f} MB)")
-    with open(test_pkl_c, 'wb') as f:
-        pickle.dump(test_proc_c, f)
-    print(f"    -> {test_pkl_c}  ({os.path.getsize(test_pkl_c) / 1024 / 1024:.1f} MB)")
-    with open(test_pkl_p, 'wb') as f:
-        pickle.dump(test_proc_p, f)
-    print(f"    -> {test_pkl_p}  ({os.path.getsize(test_pkl_p) / 1024 / 1024:.1f} MB)")
-
-    print("  saving feature column list ...")
-    with open(feat_txt, 'w', encoding='utf-8') as f:
-        f.write("\n".join(feature_columns))
-    print(f"    -> {feat_txt}")
-
-    print("\n" + "=" * 80)
-    print("DONE!")
-    print("=" * 80)
-    print(f"  Output dir: {OUTPUT_DIR}")
-    print(f"  Feature count: {len(feature_columns)}")
-    print(f"  Train rows: {len(train_proc):,}")
-    print(f"  Test  rows: {len(test_proc):,}")
-    print()
-    print("  Next step: run train_38f.py to train/evaluate.")
+    print(f"✅ Saved {len(save_pairs) * 2 + 1} files to: {OUTPUT_DIR}")
     elapsed = time.time() - _start
-    print(f"Total execution time: {elapsed:.2f} s ({elapsed/60:.1f} min)")
-    print("=" * 80)
+    print(f"\nTotal execution time: {elapsed:.2f} s ({elapsed/60:.1f} min)")
 
 
 if __name__ == "__main__":
